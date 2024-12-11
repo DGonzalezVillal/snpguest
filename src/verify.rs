@@ -10,7 +10,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use openssl::{ecdsa::EcdsaSig, sha::Sha384};
 use sev::certs::snp::Chain;
 
 #[derive(Subcommand)]
@@ -150,7 +149,7 @@ mod attestation {
     use x509_parser::{self, certificate::X509Certificate, prelude::X509Extension, x509::X509Name};
 
     use sev::{
-        certs::snp::Certificate,
+        certs::snp::{ca, Certificate, Verifiable},
         firmware::{guest::AttestationReport, host::CertType},
     };
 
@@ -195,39 +194,60 @@ mod attestation {
     }
 
     fn verify_attestation_signature(
-        vcek: Certificate,
+        vek: Chain,
         att_report: AttestationReport,
         quiet: bool,
     ) -> Result<()> {
-        let vek_pubkey = vcek
-            .public_key()
-            .context("Failed to get the public key from the VEK.")?
-            .ec_key()
-            .context("Failed to convert VEK public key into ECkey.")?;
+        // let vek_pubkey = vcek
+        //     .public_key()
+        //     .context("Failed to get the public key from the VEK.")?
+        //     .ec_key()
+        //     .context("Failed to convert VEK public key into ECkey.")?;
 
-        // Get the attestation report signature
-        let ar_signature = EcdsaSig::try_from(&att_report.signature)
-            .context("Failed to get ECDSA Signature from attestation report.")?;
-        let signed_bytes = &bincode::serialize(&att_report)
-            .context("Failed to get the signed bytes from the attestation report.")?[0x0..0x2A0];
+        // // Get the attestation report signature
+        // let ar_signature = EcdsaSig::try_from(&att_report.signature)
+        //     .context("Failed to get ECDSA Signature from attestation report.")?;
+        // let signed_bytes = &bincode::serialize(&att_report)
+        //     .context("Failed to get the signed bytes from the attestation report.")?[0x0..0x2A0];
 
-        let mut hasher: Sha384 = Sha384::new();
+        // let mut hasher: Sha384 = Sha384::new();
 
-        hasher.update(signed_bytes);
+        // hasher.update(signed_bytes);
 
-        let base_message_digest: [u8; 48] = hasher.finish();
-
-        // Verify signature
-        if ar_signature
-            .verify(base_message_digest.as_ref(), vek_pubkey.as_ref())
-            .context("Failed to verify attestation report signature with VEK public key.")?
-        {
-            if !quiet {
-                println!("VEK signed the Attestation Report!");
+        match (&vek, &att_report).verify() {
+            Ok(()) => {
+                if !quiet {
+                    println!("VEK signed the Attestation Report!")
+                }
             }
-        } else {
-            return Err(anyhow::anyhow!("VEK did NOT sign the Attestation Report!"));
-        }
+            Err(e) => match e.kind() {
+                ErrorKind::Other => {
+                    return Err(anyhow::anyhow!(
+                        "The attestation report was not signed by the AMD VEK!"
+                    ))
+                }
+                _ => {
+                    return Err(anyhow::anyhow!(
+                        "Failed to verify Attestation Report: {:?}",
+                        e
+                    ))
+                }
+            },
+        };
+
+        // let base_message_digest: [u8; 48] = hasher.finish();
+
+        // // Verify signature
+        // if ar_signature
+        //     .verify(base_message_digest.as_ref(), vek_pubkey.as_ref())
+        //     .context("Failed to verify attestation report signature with VEK public key.")?
+        // {
+        //     if !quiet {
+        //         println!("VEK signed the Attestation Report!");
+        //     }
+        // } else {
+        //     return Err(anyhow::anyhow!("VEK did NOT sign the Attestation Report!"));
+        // }
 
         Ok(())
     }
@@ -382,25 +402,37 @@ mod attestation {
                 .context("Could not open attestation report")?
         };
 
-        // Get VEK and its public key.
-        let (vek_path, vek_type) = match find_cert_in_dir(&args.certs_dir, "vlek") {
-            Ok(vlek_path) => (vlek_path, "vlek"),
-            Err(_) => (find_cert_in_dir(&args.certs_dir, "vcek")?, "vcek"),
+        let ark_path = find_cert_in_dir(&args.certs_dir, "ark")?;
+        let (mut vek_type, mut sign_type): (&str, &str) = ("vcek", "ask");
+        let (vek_path, ask_path) = match find_cert_in_dir(&args.certs_dir, "vlek") {
+            Ok(vlek_path) => {
+                (vek_type, sign_type) = ("vlek", "asvk");
+                (vlek_path, find_cert_in_dir(&args.certs_dir, sign_type)?)
+            }
+            Err(_) => (
+                find_cert_in_dir(&args.certs_dir, vek_type)?,
+                find_cert_in_dir(&args.certs_dir, sign_type)?,
+            ),
         };
 
-        // Get VEK and grab its public key
-        let vek = convert_path_to_cert(&vek_path, vek_type)?;
+        // Get a cert chain from directory
+        let cert_chain: Chain = CertPaths {
+            ark_path,
+            ask_path,
+            vek_path,
+        }
+        .try_into()?;
 
         if args.tcb || args.signature {
             if args.tcb {
-                verify_attestation_tcb(vek.clone(), att_report, quiet)?;
+                verify_attestation_tcb(cert_chain.vek.clone(), att_report, quiet)?;
             }
             if args.signature {
-                verify_attestation_signature(vek, att_report, quiet)?;
+                verify_attestation_signature(cert_chain, att_report, quiet)?;
             }
         } else {
-            verify_attestation_tcb(vek.clone(), att_report, quiet)?;
-            verify_attestation_signature(vek, att_report, quiet)?;
+            verify_attestation_tcb(cert_chain.vek.clone(), att_report, quiet)?;
+            verify_attestation_signature(cert_chain, att_report, quiet)?;
         }
 
         Ok(())
