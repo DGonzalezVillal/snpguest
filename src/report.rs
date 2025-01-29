@@ -15,10 +15,12 @@ use sev::firmware::guest::{AttestationReport, Firmware};
 
 // Read a bin-formatted attestation report.
 pub fn read_report(att_report_path: PathBuf) -> Result<AttestationReport, anyhow::Error> {
-    let attestation_file = fs::File::open(att_report_path)?;
+    let mut attestation_file = fs::File::open(att_report_path)?;
 
-    let attestation_report = bincode::deserialize_from(attestation_file)
-        .context("Could not parse attestation report.")?;
+    let mut report_bytes = Vec::new();
+    attestation_file.read_to_end(&mut report_bytes).unwrap();
+
+    let attestation_report = AttestationReport::from_bytes(&report_bytes)?;
 
     Ok(attestation_report)
 }
@@ -126,8 +128,9 @@ pub fn get_report(args: ReportArgs, hv: bool) -> Result<()> {
         .write(true)
         .open(&args.att_report_path)?;
 
-    bincode::serialize_into(&mut file, &report)
-        .context("Could not serialize attestation report into file.")?;
+    let report_bytes = report.to_bytes()?;
+
+    file.write_all(&report_bytes)?;
 
     /*
      * Write reports report data (only for --random or --platform).
@@ -150,7 +153,8 @@ fn reqdata_write(name: PathBuf, report: &AttestationReport) -> Result<()> {
         .open(name)
         .context("unable to create or write to request data file")?;
 
-    write_hex(&mut file, &report.report_data).context("unable to write report data to REQUEST_FILE")
+    write_hex(&mut file, &report.report_data())
+        .context("unable to write report data to REQUEST_FILE")
 }
 
 pub fn write_hex(file: &mut File, data: &[u8]) -> Result<()> {

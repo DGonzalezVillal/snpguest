@@ -151,7 +151,7 @@ mod attestation {
 
     use sev::{
         certs::snp::Certificate,
-        firmware::{guest::AttestationReport, host::CertType},
+        firmware::{guest::{/*Attestable,*/ Attestable, AttestationReport}, host::CertType},
     };
 
     enum SnpOid {
@@ -161,7 +161,7 @@ mod attestation {
         Ucode,
         HwId,
     }
-
+    
     // OID extensions for the VCEK, will be used to verify attestation report
     impl SnpOid {
         fn oid(&self) -> Oid {
@@ -206,7 +206,7 @@ mod attestation {
             .context("Failed to convert VEK public key into ECkey.")?;
 
         // Get the attestation report signature
-        let ar_signature = EcdsaSig::try_from(&att_report.signature)
+        let ar_signature = EcdsaSig::try_from(att_report.signature())
             .context("Failed to get ECDSA Signature from attestation report.")?;
         let signed_bytes = &bincode::serialize(&att_report)
             .context("Failed to get the signed bytes from the attestation report.")?[0x0..0x2A0];
@@ -308,7 +308,7 @@ mod attestation {
 
         // Compare bootloaders
         if let Some(cert_bl) = extensions.get(&SnpOid::BootLoader.oid()) {
-            if !check_cert_bytes(cert_bl, &att_report.reported_tcb.bootloader.to_le_bytes()) {
+            if !check_cert_bytes(cert_bl, &att_report.reported_tcb().bootloader.to_le_bytes()) {
                 return Err(anyhow::anyhow!(
                     "Report TCB Boot Loader and Certificate Boot Loader mismatch encountered."
                 ));
@@ -322,7 +322,7 @@ mod attestation {
 
         // Compare TEE information
         if let Some(cert_tee) = extensions.get(&SnpOid::Tee.oid()) {
-            if !check_cert_bytes(cert_tee, &att_report.reported_tcb.tee.to_le_bytes()) {
+            if !check_cert_bytes(cert_tee, &att_report.reported_tcb().tee.to_le_bytes()) {
                 return Err(anyhow::anyhow!(
                     "Report TCB TEE and Certificate TEE mismatch encountered."
                 ));
@@ -334,7 +334,7 @@ mod attestation {
 
         // Compare SNP information
         if let Some(cert_snp) = extensions.get(&SnpOid::Snp.oid()) {
-            if !check_cert_bytes(cert_snp, &att_report.reported_tcb.snp.to_le_bytes()) {
+            if !check_cert_bytes(cert_snp, &att_report.reported_tcb().snp.to_le_bytes()) {
                 return Err(anyhow::anyhow!(
                     "Report TCB SNP and Certificate SNP mismatch encountered."
                 ));
@@ -346,7 +346,7 @@ mod attestation {
 
         // Compare Microcode information
         if let Some(cert_ucode) = extensions.get(&SnpOid::Ucode.oid()) {
-            if !check_cert_bytes(cert_ucode, &att_report.reported_tcb.microcode.to_le_bytes()) {
+            if !check_cert_bytes(cert_ucode, &att_report.reported_tcb().microcode.to_le_bytes()) {
                 return Err(anyhow::anyhow!(
                     "Report TCB Microcode and Certificate Microcode mismatch encountered."
                 ));
@@ -359,7 +359,7 @@ mod attestation {
         // Compare HWID information only on VCEK
         if common_name == CertType::VCEK {
             if let Some(cert_hwid) = extensions.get(&SnpOid::HwId.oid()) {
-                if !check_cert_bytes(cert_hwid, &att_report.chip_id) {
+                if !check_cert_bytes(cert_hwid, &att_report.chip_id()) {
                     return Err(anyhow::anyhow!(
                         "Report TCB ID and Certificate ID mismatch encountered."
                     ));

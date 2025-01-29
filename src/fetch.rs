@@ -242,20 +242,20 @@ mod vcek {
 
         let hw_id: String = match processor_model {
             ProcType::Turin => {
-                let shorter_bytes: &[u8] = &att_report.chip_id[0..8];
+                let shorter_bytes: &[u8] = &att_report.chip_id()[0..8];
                 hex::encode(shorter_bytes)
             }
-            _ => hex::encode(att_report.chip_id),
+            _ => hex::encode(att_report.chip_id()),
         };
 
         let vcek_url: String = format!(
             "{KDS_CERT_SITE}{KDS_VCEK}/{}/\
             {hw_id}?blSPL={:02}&teeSPL={:02}&snpSPL={:02}&ucodeSPL={:02}",
             processor_model.to_kds_url(),
-            att_report.reported_tcb.bootloader,
-            att_report.reported_tcb.tee,
-            att_report.reported_tcb.snp,
-            att_report.reported_tcb.microcode
+            att_report.reported_tcb().bootloader,
+            att_report.reported_tcb().tee,
+            att_report.reported_tcb().snp,
+            att_report.reported_tcb().microcode
         );
 
         // VCEK in DER format
