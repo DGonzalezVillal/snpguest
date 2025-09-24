@@ -152,7 +152,7 @@ mod attestation {
     use x509_parser::{self, certificate::X509Certificate, prelude::X509Extension, x509::X509Name};
 
     use sev::{
-        certs::snp::Certificate,
+        certs::snp::{Certificate, Verifiable},
         firmware::{guest::AttestationReport, host::CertType},
     };
 
@@ -207,38 +207,42 @@ mod attestation {
         att_report: AttestationReport,
         quiet: bool,
     ) -> Result<()> {
-        let vek_pubkey = vcek
-            .public_key()
-            .context("Failed to get the public key from the VEK.")?
-            .ec_key()
-            .context("Failed to convert VEK public key into ECkey.")?;
-
-        // Get the attestation report signature
-        let ar_signature = EcdsaSig::try_from(&att_report.signature)
-            .context("Failed to get ECDSA Signature from attestation report.")?;
-        let mut report_bytes = Vec::new();
-        att_report.write_bytes(&mut report_bytes)?;
-        let signed_bytes = &report_bytes[0x0..0x2A0];
-
-        let mut hasher: Sha384 = Sha384::new();
-
-        hasher.update(signed_bytes);
-
-        let base_message_digest: [u8; 48] = hasher.finish();
-
-        // Verify signature
-        if ar_signature
-            .verify(base_message_digest.as_ref(), vek_pubkey.as_ref())
-            .context("Failed to verify attestation report signature with VEK public key.")?
-        {
-            if !quiet {
-                println!("VEK signed the Attestation Report!");
-            }
-        } else {
-            return Err(anyhow::anyhow!("VEK did NOT sign the Attestation Report!"));
-        }
-
+        (&vcek, &att_report)
+            .verify()
+            .context("Report signature verification against VEK signature failed")?;
         Ok(())
+        // let vek_pubkey = vcek
+        //     .public_key()
+        //     .context("Failed to get the public key from the VEK.")?
+        //     .ec_key()
+        //     .context("Failed to convert VEK public key into ECkey.")?;
+
+        // // Get the attestation report signature
+        // let ar_signature = EcdsaSig::try_from(&att_report.signature)
+        //     .context("Failed to get ECDSA Signature from attestation report.")?;
+        // let mut report_bytes = Vec::new();
+        // att_report.write_bytes(&mut report_bytes)?;
+        // let signed_bytes = &report_bytes[0x0..0x2A0];
+
+        // let mut hasher: Sha384 = Sha384::new();
+
+        // hasher.update(signed_bytes);
+
+        // let base_message_digest: [u8; 48] = hasher.finish();
+
+        // // Verify signature
+        // if ar_signature
+        //     .verify(base_message_digest.as_ref(), vek_pubkey.as_ref())
+        //     .context("Failed to verify attestation report signature with VEK public key.")?
+        // {
+        //     if !quiet {
+        //         println!("VEK signed the Attestation Report!");
+        //     }
+        // } else {
+        //     return Err(anyhow::anyhow!("VEK did NOT sign the Attestation Report!"));
+        // }
+
+        // Ok(())
     }
 
     // Check the cert extension byte to value
